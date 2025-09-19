@@ -5,7 +5,7 @@ from document_loader import document_loader
 from dotenv import load_dotenv
 import os
 from test import test_tracing
-from rag_chain import chain
+from chain import chain
 
 def main():
     load_dotenv()
@@ -17,8 +17,10 @@ def main():
     chunks = document_loader.split_documents(docs)
     chromaDb.add_to_db(chunks)
 
-    rag = chain.rag_chain()
-    rag.invoke("Machine learning in broiler")
+    rag = chain.simple_rag_chain()
+    multi_rag = chain.multi_query_chain()
+    
+    multi_rag.invoke({"question": "What is Machine Learning?"})
 
     
 
