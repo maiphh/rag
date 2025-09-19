@@ -4,8 +4,8 @@ from langchain_ollama import ChatOllama,OllamaEmbeddings
 
 class Settings:
     def __init__(self):
-        self.llm = ChatOllama(model = "mistral")
-        self.embed = OllamaEmbeddings(model = "dengcao/Qwen3-Embedding-0.6B:Q8_0")
+        self.llm = ChatOllama(model = "gemma3n:e4b")
+        self.embed = OllamaEmbeddings(model = "nomic-embed-text:latest")
     
     def get_llm(self):
         return self.llm

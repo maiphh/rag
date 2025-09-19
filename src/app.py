@@ -8,7 +8,10 @@ from test import test_tracing
 from chain import chain
 
 def main():
-    load_dotenv()
+    
+    if not load_dotenv():
+        print(".env file not found")
+        return
 
     llm = settings.get_llm()
     embed = settings.get_embed()
@@ -17,18 +20,16 @@ def main():
     chunks = document_loader.split_documents(docs)
     chromaDb.add_to_db(chunks)
 
-    rag = chain.simple_rag_chain()
-    multi_rag = chain.multi_query_chain()
+    rag = chain.simple_rag_chain(llm)
+    multi_rag = chain.multi_query_chain(llm)
     
-    multi_rag.invoke({"question": "What is Machine Learning?"})
-
-    
-
-
+    multi_rag.invoke("Broiler health and machine learning")
 
 
     
 
 
 
+
+    
 main()
