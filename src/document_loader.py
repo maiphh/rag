@@ -5,13 +5,26 @@ from langchain_chroma import Chroma
 from pathlib import Path
 from langchain_core.documents import Document
 from docling.document_converter import DocumentConverter
+from langchain_core.document_loaders import BaseLoader
+from typing import Iterable, Optional
 
 default_root = "data"
+
+class DoclingLoader(BaseLoader):
+    def __init__(self, path: str | list[str]):
+        self._file_paths = path if isinstance(path,list) else [path]
+        self._converter = DocumentConverter()
+    
+    def lazy_load(self):
+        for path in self._file_paths:
+            docling_doc = self._converter.convert(path).document
+            text = docling_doc.export_to_markdown()
+            yield Document(page_content=text, metadata={"source": str(path)})
 
 class DocumentLoader:
     
     def __init__(self):
-        self.splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+        self.splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=100)
 
         self.converter = DocumentConverter()
         # Supported file extensions
@@ -22,38 +35,21 @@ class DocumentLoader:
 
 
 
-    def load_documents(self, root = default_root):
-        loader = PyPDFDirectoryLoader(root)
+    def load_documents(self, root = default_root, loaded_files : Optional[Iterable[str]] = None):
+        files = self.get_all_files(root)
+        unloaded_files = [f for f in files if f not in loaded_files]
+        
+        if not unloaded_files:
+            print("No new files to load.")
+            return []
+        
+        # loader = PyPDFDirectoryLoader(root)
+        loader = DoclingLoader(unloaded_files)
         return loader.load()
-    
-    # def load_documents(self, root=default_root):
-    #     """Load documents from directory using Docling"""
-    #     documents = []
-    #     root_path = Path(root)
-        
-    #     if not root_path.exists():
-    #         raise FileNotFoundError(f"Directory {root} not found")
-        
-    #     # Find all supported files in the directory
-    #     for file_path in root_path.rglob('*'):
-    #         if file_path.is_file() and file_path.suffix.lower() in self.supported_extensions:
-    #             try:
-    #                 # Convert document using Docling
-    #                 result = self.converter.convert(str(file_path))
-                    
-    #                 documents.append(result)
-    #                 print(f"✅ Loaded: {file_path.name}")
-                    
-    #             except Exception as e:
-    #                 print(f"❌ Error loading {file_path.name}: {str(e)}")
-    #                 continue
-        
-    #     print(f"📚 Total documents loaded: {len(documents)}")
-    #     return documents
 
-    def get_all_files(self, root=default_root):
+    def get_all_files(self, root=default_root) -> list[str]:
         root_path = Path(root)
-        all_files = [p for p in root_path.rglob('*') if p.is_file() and p.suffix.lower() in self.supported_extensions]
+        all_files = [str(p) for p in root_path.rglob('*') if p.is_file() and p.suffix.lower() in self.supported_extensions]
         return all_files
     
     def split_documents(self, documents):

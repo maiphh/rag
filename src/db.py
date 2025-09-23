@@ -64,6 +64,12 @@ class Database:
 
         return chunks
     
+    def get_loaded_src(self):
+        existing = self.db.get(include=["metadatas"])
+        loaded_sources = {meta["source"] for meta in existing["metadatas"] if "source" in meta}
+        print("Already loaded:", loaded_sources)
+        return loaded_sources
+    
     def clear(self):
         self.db.delete_collection()
         print("🗑️  Database cleared")

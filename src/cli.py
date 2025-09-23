@@ -4,7 +4,6 @@ from db import chromaDb
 from document_loader import document_loader
 from dotenv import load_dotenv
 import os
-from test import test_tracing
 from chain import chain
 
 # Configuration for all RAG chains - ADD NEW CHAINS HERE ONLY
@@ -27,22 +26,12 @@ RAG_CHAINS = {
     }
 
     # Add new chains here:
-    # 3: {
+    # 4: {
     #     "name": "Your New Chain",
     #     "description": "Description of your new chain",
     #     "function": lambda llm: chain.your_new_chain(llm)
     # }
 }
-
-
-
-
-
-
-
-
-
-
 
 def display_menu():
     """Display the available RAG chain options dynamically"""
@@ -55,22 +44,39 @@ def display_menu():
         print(f"{key}. {chain_info['name']}")
         print(f"   └─ {chain_info['description']}")
     
-    print(f"{len(RAG_CHAINS) + 1}. Exit")
+    print(f"{len(RAG_CHAINS) + 1}. Clear Database")
+    print(f"   └─ Remove all documents from ChromaDB")
+    print(f"{len(RAG_CHAINS) + 2}. Exit")
     print("="*60)
 
 def get_user_choice():
     """Get and validate user's menu choice dynamically"""
-    valid_choices = list(RAG_CHAINS.keys()) + [len(RAG_CHAINS) + 1]  # Include exit option
+    valid_choices = list(RAG_CHAINS.keys()) + [len(RAG_CHAINS) + 1, len(RAG_CHAINS) + 2]  # Include clear and exit options
     
     while True:
         try:
-            choice = int(input(f"Please select an option (1-{len(RAG_CHAINS) + 1}): "))
+            choice = int(input(f"Please select an option (1-{len(RAG_CHAINS) + 2}): "))
             if choice in valid_choices:
                 return choice
             else:
                 print(f"Invalid choice. Please select from {min(valid_choices)}-{max(valid_choices)}.")
         except ValueError:
             print("Invalid input. Please enter a number.")
+
+def clear_database():
+    """Clear all documents from ChromaDB"""
+    try:
+        print("\n⚠️  WARNING: This will delete all documents from the database!")
+        confirm = input("Are you sure you want to proceed? Type 'yes' to confirm: ").strip().lower()
+        
+        if confirm == 'yes':
+            print("Clearing database...")
+            chromaDb.clear()
+            print("✅ Database cleared successfully!")
+        else:
+            print("❌ Database clear cancelled.")
+    except Exception as e:
+        print(f"❌ Error clearing database: {str(e)}")
 
 def get_user_query():
     """Get the query from user"""
@@ -118,9 +124,10 @@ def main():
         
         # Load and process documents
         print("Loading documents...")
-        docs = document_loader.load_documents()
-        chunks = document_loader.split_documents(docs)
-        chromaDb.add_to_db(chunks)
+        docs = document_loader.load_documents(loaded_files=chromaDb.get_loaded_src())
+        if docs:
+            chunks = document_loader.split_documents(docs)
+            chromaDb.add_to_db(chunks)
         
         print("RAG system initialized successfully!")
         
@@ -129,7 +136,8 @@ def main():
         return
 
     # Main CLI loop
-    exit_option = len(RAG_CHAINS) + 1
+    clear_option = len(RAG_CHAINS) + 1
+    exit_option = len(RAG_CHAINS) + 2
     
     while True:
         display_menu()
@@ -138,6 +146,9 @@ def main():
         if choice == exit_option:
             print("Thank you for using the RAG system. Goodbye!")
             break
+        elif choice == clear_option:
+            clear_database()
+            continue
         
         query = get_user_query()
         
