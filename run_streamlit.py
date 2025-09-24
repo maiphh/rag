@@ -23,7 +23,7 @@ def main():
         # Run streamlit from the src directory
         subprocess.run([
             sys.executable, "-m", "streamlit", "run", 
-            os.path.join(src_dir, "streamlit.py"),
+            os.path.join(src_dir, "streamlit_page.py"),
             "--server.port", "8501",
             "--server.address", "localhost"
         ], check=True)

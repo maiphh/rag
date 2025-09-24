@@ -4,24 +4,21 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough, RunnableParallel, RunnableLambda
 from util import *
 from operator import itemgetter
+import prompt_template
+from langchain.retrievers import ContextualCompressionRetriever
+
 
 
 def simple_rag_chain(llm, retriever):
-    template = """Answer the question based only on the following context:
-    {context}
-
-    Question: {question}
-    """
-
-    prompt = ChatPromptTemplate.from_template(template)
-
+    prompt = ChatPromptTemplate.from_template(prompt_template.QA_TEMPLATE)
+    
     cached = (
         {"question": RunnablePassthrough()}
         | RunnablePassthrough.assign(docs = itemgetter("question") | retriever)
     )
 
     chain = (
-        {"context": itemgetter("docs"), "question": itemgetter("question")}
+        {"context": itemgetter("docs") | RunnableLambda(format_docs), "question": itemgetter("question")}
         | prompt
         | llm
         | StrOutputParser()
@@ -35,15 +32,10 @@ def simple_rag_chain(llm, retriever):
         })
     )
 
-def multi_query_chain(llm, retriever):
 
-    template = """You are an AI language model assistant. Your task is to generate 3 
-    different versions of the given user question to retrieve relevant documents from a vector 
-    database. By generating multiple perspectives on the user question, your goal is to help
-    the user overcome some of the limitations of the distance-based similarity search. 
-    Provide these alternative questions separated by newlines, provides the answer only. Original question: {question}"""
-    
-    prompt_perspectives = ChatPromptTemplate.from_template(template)
+def multi_query_chain(llm, retriever):
+    prompt_perspectives = ChatPromptTemplate.from_template(prompt_template.MULTI_QUERY_TEMPLATE)
+
 
     generate_queries_chain = (
         prompt_perspectives
@@ -63,14 +55,10 @@ def multi_query_chain(llm, retriever):
         | RunnablePassthrough.assign(docs = itemgetter("question") | retrieval_chain)
     )
 
-    template = """Answer the following question based on this context:
-    {context}
-    Question: {question}
-    """
-    prompt = ChatPromptTemplate.from_template(template)
+    prompt = ChatPromptTemplate.from_template(prompt_template.QA_TEMPLATE)
 
     final_chain = (
-        {"context": itemgetter("docs"), "question": RunnablePassthrough()}
+        {"context": itemgetter("docs") | RunnableLambda(format_docs), "question": RunnablePassthrough()}
         | prompt
         | llm
         | StrOutputParser()
@@ -86,13 +74,7 @@ def multi_query_chain(llm, retriever):
 
 def rag_fusion_chain(llm, retriever):
 
-    template = """You are an AI language model assistant. Your task is to generate 3 
-    different versions of the given user question to retrieve relevant documents from a vector 
-    database. By generating multiple perspectives on the user question, your goal is to help
-    the user overcome some of the limitations of the distance-based similarity search. 
-    Provide these alternative questions separated by newlines. Original question: {question}"""
-    
-    prompt_perspectives = ChatPromptTemplate.from_template(template)
+    prompt_perspectives = ChatPromptTemplate.from_template(prompt_template.MULTI_QUERY_TEMPLATE)
 
     generate_queries_chain = (
         prompt_perspectives
@@ -113,11 +95,7 @@ def rag_fusion_chain(llm, retriever):
         | RunnablePassthrough.assign(ranked_docs = itemgetter("docs") | RunnableLambda(reciprocal_rank_fusion))
     )
 
-    template = """Answer the following question based on this context:
-    {context}
-    Question: {question}
-    """
-    prompt = ChatPromptTemplate.from_template(template)
+    prompt = ChatPromptTemplate.from_template(prompt_template.QA_TEMPLATE)
 
     final_chain = (
         {"context": itemgetter("ranked_docs"), "question": RunnablePassthrough()}

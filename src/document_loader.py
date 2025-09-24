@@ -1,6 +1,8 @@
 from langchain_community.document_loaders import PyPDFDirectoryLoader
-from langchain_ollama import OllamaEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_experimental.text_splitter import SemanticChunker
+from chunking_evaluation.chunking import KamradtModifiedChunker
+
 from langchain_chroma import Chroma
 from pathlib import Path
 from langchain_core.documents import Document
@@ -23,8 +25,12 @@ class DoclingLoader(BaseLoader):
 
 class DocumentLoader:
     
-    def __init__(self):
-        self.splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=100)
+    def __init__(self, embed):
+        
+        self.embed = embed
+        self.splitter = SemanticChunker(embed)
+        # self.splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=100)
+        # self.splitter = KamradtModifiedChunker(avg_chunk_size=400, min_chunk_size=50, embedding_function= self.embed)
 
         self.converter = DocumentConverter()
         # Supported file extensions

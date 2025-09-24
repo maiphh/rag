@@ -13,7 +13,7 @@ class Database:
             embedding_function = embed
         )
 
-        self.retriever = self.db.as_retriever(search_type="similarity_score_threshold", search_kwargs={"k":4, "score_threshold": SCORE_THRESHOLD})
+        self.retriever = self.db.as_retriever(search_type="similarity_score_threshold", search_kwargs={"k":20, "score_threshold": SCORE_THRESHOLD})
 
     def add_to_db(self, chunks):
         chunks_with_id = self.calculate_chunk_ids(chunks)
@@ -79,5 +79,5 @@ class Database:
         return self.retriever.invoke(query, threshold = threshold)
     
     def get_retriever(self):
-        return self.db.as_retriever()
+        return self.retriever
 

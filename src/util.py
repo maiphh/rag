@@ -1,7 +1,8 @@
 from langchain.load import dumps, loads
-
-def split_queries(queries):
-    return queries.split("\n")
+from sentence_transformers import CrossEncoder
+from langchain_core.runnables import RunnableLambda
+def split_queries(queries : str):
+    return [q.strip() for q in queries.splitlines() if q.strip()]
 
 def get_unique_union(documents: list[list], by_content_only=True):
     """ Unique union of retrieved docs """
@@ -59,3 +60,18 @@ def reciprocal_rank_fusion(results: list[list], k=60):
 
     # Return the reranked results as a list of tuples, each containing the document and its fused score
     return reranked_results
+
+def format_docs(docs):
+    return "\n\n".join(doc.page_content for doc in docs)
+
+def rerank_docs(top_n=5, model="cross-encoder/ms-marco-MiniLM-L-6-v2"):
+    ce = CrossEncoder(model)
+    def _fn(response):
+        q = response["question"]; docs = response["docs"] or []
+        if not docs: return []
+        scores = ce.predict([(q, d.page_content) for d in docs])
+        reranked = [d for d, _ in sorted(zip(docs, scores), key=lambda z: z[1], reverse=True)]
+        return reranked[:top_n]
+    return RunnableLambda(_fn)
+
+

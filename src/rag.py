@@ -6,6 +6,11 @@ import os
 from langchain_ollama import ChatOllama,OllamaEmbeddings
 from enum import Enum
 from chain import *
+from langchain.retrievers.document_compressors import CrossEncoderReranker
+from langchain_community.cross_encoders import HuggingFaceCrossEncoder
+from langchain.retrievers import ContextualCompressionRetriever
+
+
 
 class LLM(Enum):
     LLAMA3_8B = "llama3:8b"
@@ -32,12 +37,18 @@ class Rag:
             print(".env file not found")
 
     
-        self.llm = ChatOllama(model = LLM.LLAMA3_8B.value)
+        self.llm = ChatOllama(model = LLM.GEMMA3_1B.value)
         self.embed = OllamaEmbeddings(model = EMBEDDING.NOMIX_EMBED_TEXT.value)
-        self.document_loader = DocumentLoader()
+        self.rag_type = RagType.SIMPLE
+
+        self.document_loader = DocumentLoader(self.embed)
         self.db = Database(self.embed)
         self.retriever = self.db.get_retriever()
-        self.rag_type = RagType.SIMPLE
+
+        self.rank_retriever = None
+        self.set_rank_retriever(retriever = self.get_retriever(), 
+                                                      model_name="cross-encoder/ms-marco-MiniLM-L-6-v2", 
+                                                      top_n=4)
 
         self.load_documents()
 
@@ -54,17 +65,32 @@ class Rag:
         self.db.clear()
 
     def invoke(self, query):
-        # Placeholder
-        builder = self.get_rag_type_builder()
-        final_chain = builder(self.get_llm(), self.get_retriever())
-        
-        response = final_chain.invoke(query)
+        response = self.invoke_full(query)
         answer = response["answer"]
         docs = response["docs"]
 
         return answer, docs
 
+    def invoke_full(self, query):
+        builder = self.get_rag_type_builder()
+        final_chain = builder(self.get_llm(), self.get_rank_retriever())
+        
+        response = final_chain.invoke(query)
+        return response
 
+    def set_rank_retriever(self, retriever,  model_name="cross-encoder/ms-marco-MiniLM-L-6-v2", top_n=5): 
+        cross_encoder = HuggingFaceCrossEncoder(model_name=model_name)
+        reranker = CrossEncoderReranker(model=cross_encoder, top_n=top_n)
+
+        self.rank_retriever = ContextualCompressionRetriever(
+            base_retriever=retriever,
+            base_compressor=reranker
+        )
+    
+    def get_rank_retriever(self):
+        return self.rank_retriever
+
+    
     def get_rag_type(self):
         return self.rag_type
     
@@ -97,6 +123,9 @@ class Rag:
     
     def set_embedding(self, embed: EMBEDDING):
         self.embed = OllamaEmbeddings(model = embed.value)
+
+    def to_string(self):
+        return f"RAG Type: {self.rag_type.name}, LLM: {self.llm.model}, Embedding: {self.embed.model}"
 
     
     
