@@ -1,5 +1,9 @@
 
-from document_loader import document_loader
 
+from rag import Rag
+from chain import simple_rag_chain, rag_fusion_chain, multi_query_chain
 
-print(document_loader.get_all_files())
+rag = Rag()
+response = simple_rag_chain(rag.get_llm(), rag.get_retriever()).invoke("What is RAG?")
+print("answer:", response["answer"])
+print("docs:", response["docs"])

@@ -10,7 +10,7 @@ class EMBEDDING(Enum):
 
 class Settings:
     def __init__(self):
-        self.llm = ChatOllama(model = LLM.GEMMA3_1B.value)
+        self.llm = ChatOllama(model = LLM.LLAMA3_8B.value)
         self.embed = OllamaEmbeddings(model = EMBEDDING.NOMIX_EMBED_TEXT.value)
 
     def get_llm(self):

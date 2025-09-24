@@ -6,7 +6,7 @@ from pathlib import Path
 from langchain_core.documents import Document
 from docling.document_converter import DocumentConverter
 from langchain_core.document_loaders import BaseLoader
-from typing import Iterable, Optional
+from typing import Iterable, List, Optional
 
 default_root = "data"
 
@@ -35,7 +35,7 @@ class DocumentLoader:
 
 
 
-    def load_documents(self, root = default_root, loaded_files : Optional[Iterable[str]] = None):
+    def load_documents(self, root = default_root, loaded_files : list[str] = None):
         files = self.get_all_files(root)
         unloaded_files = [f for f in files if f not in loaded_files]
         
@@ -56,7 +56,3 @@ class DocumentLoader:
         return self.splitter.split_documents(documents)
     
 
-    
-
-    
-document_loader = DocumentLoader()

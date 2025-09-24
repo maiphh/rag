@@ -26,6 +26,10 @@ def get_unique_union(documents: list[list], by_content_only=True):
         # Return
         return [loads(doc) for doc in unique_docs]
     
+def limit_docs(documents: list, limit=4):
+    """ Limit number of documents """
+    return documents[:limit]
+    
 def reciprocal_rank_fusion(results: list[list], k=60):
     """ Reciprocal_rank_fusion that takes multiple lists of ranked documents 
         and an optional parameter k used in the RRF formula """

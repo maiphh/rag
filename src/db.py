@@ -4,16 +4,16 @@ from langsmith.run_helpers import traceable
 
 
 db_path = "db"
-
+SCORE_THRESHOLD = 0.5
 
 class Database:
-    def __init__(self):
+    def __init__(self, embed):
         self.db = Chroma(
             persist_directory = db_path,
-            embedding_function = settings.get_embed()
+            embedding_function = embed
         )
 
-        self.retriever = self.db.as_retriever()
+        self.retriever = self.db.as_retriever(search_type="similarity_score_threshold", search_kwargs={"k":4, "score_threshold": SCORE_THRESHOLD})
 
     def add_to_db(self, chunks):
         chunks_with_id = self.calculate_chunk_ids(chunks)
@@ -64,18 +64,20 @@ class Database:
 
         return chunks
     
-    def get_loaded_src(self):
+    def get_loaded_src(self) -> list[str]:
         existing = self.db.get(include=["metadatas"])
         loaded_sources = {meta["source"] for meta in existing["metadatas"] if "source" in meta}
         print("Already loaded:", loaded_sources)
-        return loaded_sources
+        return list(loaded_sources)
     
     def clear(self):
         self.db.delete_collection()
         print("🗑️  Database cleared")
 
     @traceable(name="retrieve")
-    def retrieve(self, query):
-        return self.retriever.invoke(query)
+    def retrieve(self, query, threshold = SCORE_THRESHOLD):
+        return self.retriever.invoke(query, threshold = threshold)
     
-chromaDb = Database()
+    def get_retriever(self):
+        return self.db.as_retriever()
+
