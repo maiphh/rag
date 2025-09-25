@@ -1,6 +1,7 @@
 import streamlit as st
 from dotenv import load_dotenv
 from rag import Rag, LLM, RagType
+from enum_manager import DOMAIN   # <-- added import
 
 load_dotenv()
 
@@ -26,6 +27,14 @@ def parse_rag_type(label: str) -> RagType:
     lookup = {format_rag_type(r): r for r in RagType}
     return lookup[label]
 
+# ---- New helpers for Domain ----
+def format_domain(d: DOMAIN) -> str:
+    return d.name.title().replace("_", " ")
+
+def parse_domain(label: str) -> DOMAIN:
+    lookup = {format_domain(d): d for d in DOMAIN}
+    return lookup[label]
+
 # ---------------- Sidebar ----------------
 with st.sidebar:
     st.header("⚙️ Settings")
@@ -49,6 +58,32 @@ with st.sidebar:
     if selected_rag_label != current_rag_label:
         rag.set_rag_type(parse_rag_type(selected_rag_label))
 
+    # Domain selection (NEW)
+    domain_labels = [format_domain(d) for d in DOMAIN]
+    try:
+        current_domain_value = rag.get_domain()
+    except AttributeError:
+        current_domain_value = getattr(getattr(rag, "domain_router", {}), "domain", None)
+    # map current value to label
+    current_domain_enum = None
+    for d in DOMAIN:
+        if d.value == current_domain_value or d.name == str(current_domain_value):
+            current_domain_enum = d
+            break
+    current_domain_label = format_domain(current_domain_enum) if current_domain_enum else domain_labels[0]
+    domain_index = domain_labels.index(current_domain_label)
+    selected_domain_label = st.selectbox("Domain", domain_labels, index=domain_index)
+    if selected_domain_label != current_domain_label:
+        rag.set_domain(parse_domain(selected_domain_label))
+
+    # Retriever threshold slider (NEW)
+    try:
+        current_threshold = float(rag.get_threshold())
+    except Exception:
+        current_threshold = 0.0
+    new_threshold = st.slider("Retriever Threshold", 0.0, 1.0, value=current_threshold, step=0.01)
+    if abs(new_threshold - current_threshold) > 1e-9:
+        rag.set_threshold(new_threshold)
 
     st.markdown("---")
     if st.button("🗑️ Clear Database"):
@@ -66,6 +101,11 @@ with st.sidebar:
     st.markdown("---")
     st.caption(f"Active LLM: {rag.get_llm().model}")
     st.caption(f"Active RAG: {format_rag_type(rag.get_rag_type())}")
+    try:
+        st.caption(f"Active Domain: {parse_domain(selected_domain_label).value}")
+    except Exception:
+        pass
+    st.caption(f"Threshold: {new_threshold:.2f}")
 
 # ---------------- Main UI ----------------
 st.title("📚 RAG Document Q&A")
@@ -93,11 +133,7 @@ if prompt := st.chat_input("Ask something..."):
             answer = "Error: Unknown"
             sources_payload = []
             try:
-                # Run chain
-                answer, retrieved_docs= rag.invoke(prompt)
-
-                # Collect retrieved docs separately for display
-
+                answer, retrieved_docs = rag.invoke(prompt)
                 for d in retrieved_docs:
                     meta = getattr(d, "metadata", {}) or {}
                     source = meta.get("source") or meta.get("file_path") or "Unknown source"
@@ -116,6 +152,7 @@ if prompt := st.chat_input("Ask something..."):
                         st.markdown(f"**{i}. {src['source']}**")
                         if src.get("content"):
                             st.code(src["content"], language="markdown")
+                            # st.markdown(src["content"])
 
     st.session_state.messages.append({
         "role": "assistant",

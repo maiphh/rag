@@ -9,7 +9,7 @@ from langchain_core.documents import Document
 from docling.document_converter import DocumentConverter
 from langchain_core.document_loaders import BaseLoader
 from typing import Iterable, List, Optional
-
+from enum_manager import *
 default_root = "data"
 
 class DoclingLoader(BaseLoader):
@@ -21,7 +21,20 @@ class DoclingLoader(BaseLoader):
         for path in self._file_paths:
             docling_doc = self._converter.convert(path).document
             text = docling_doc.export_to_markdown()
-            yield Document(page_content=text, metadata={"source": str(path)})
+            domain = self.get_domain_from_path(path)
+            yield Document(page_content=text, metadata={"source": str(path), "domain": domain})
+
+    def get_domain_from_path(self,path: str) -> str | None:
+        p = Path(path).resolve()
+        domain_map = {d.value.lower(): d for d in DOMAIN}
+
+        for parent in p.parents:
+            name = parent.name.lower()
+            if name in domain_map:
+                return domain_map[name].value  # or domain_map[name].value
+        return DOMAIN.ALL.value
+
+        
 
 class DocumentLoader:
     
@@ -35,8 +48,7 @@ class DocumentLoader:
         self.converter = DocumentConverter()
         # Supported file extensions
         self.supported_extensions = {
-            '.pdf', '.docx', '.doc', '.pptx', '.ppt', 
-            '.xlsx', '.xls', '.html', '.htm', '.md', '.txt'
+            '.pdf', '.docx', '.doc', '.xlsx', '.xls', '.html', '.htm', '.md', '.txt'
         }
 
 
@@ -55,8 +67,14 @@ class DocumentLoader:
 
     def get_all_files(self, root=default_root) -> list[str]:
         root_path = Path(root)
-        all_files = [str(p) for p in root_path.rglob('*') if p.is_file() and p.suffix.lower() in self.supported_extensions]
-        return all_files
+        if not root_path.exists():
+            raise FileNotFoundError(f"❌ The directory '{root}' does not exist.")
+
+        files = []
+        for path in root_path.rglob("*"):  # rglob('*') = recursive glob
+            if path.is_file():
+                files.append(str(path.resolve()))  # absolute path
+        return files
     
     def split_documents(self, documents):
         return self.splitter.split_documents(documents)

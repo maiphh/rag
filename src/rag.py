@@ -9,47 +9,35 @@ from chain import *
 from langchain.retrievers.document_compressors import CrossEncoderReranker
 from langchain_community.cross_encoders import HuggingFaceCrossEncoder
 from langchain.retrievers import ContextualCompressionRetriever
-
-
-
-class LLM(Enum):
-    LLAMA3_8B = "llama3:8b"
-    GEMMA3_1B = "gemma3:1b"
-
-class EMBEDDING(Enum):
-    NOMIX_EMBED_TEXT = "nomic-embed-text:latest"
-
-class RagType(Enum):
-    SIMPLE = "simple"
-    MULTI_QUERY = "multi_query"
-    RAG_FUSION = "rag_fusion"
-
-RAG_TYPE_BUILDERS = {
-    RagType.SIMPLE: simple_rag_chain,
-    RagType.MULTI_QUERY: multi_query_chain,
-    # RagType.RAG_FUSION: rag_fusion_chain,
-}
-
+from enum_manager import *
+from router import ManualDomainRouter
+from retriever import BasicRetriever, DomainRetriever
 
 class Rag:
     def __init__(self):
         if not load_dotenv():
             print(".env file not found")
 
-    
+        # LLM + EMBEDDING
         self.llm = ChatOllama(model = LLM.GEMMA3_1B.value)
         self.embed = OllamaEmbeddings(model = EMBEDDING.NOMIX_EMBED_TEXT.value)
         self.rag_type = RagType.SIMPLE
 
+        # DB
         self.document_loader = DocumentLoader(self.embed)
         self.db = Database(self.embed)
-        self.retriever = self.db.get_retriever()
 
-        self.rank_retriever = None
-        self.set_rank_retriever(retriever = self.get_retriever(), 
-                                                      model_name="cross-encoder/ms-marco-MiniLM-L-6-v2", 
-                                                      top_n=4)
+        # RETRIEVER
+        self.retrieve_num = 20
+        self.top_n = 4  # for reranker
+        self.threshold = 0.5
+        self.is_rerank = True
+        self.reranker = RERANKER.MACRO_MINI.value
 
+        # ROUTER
+        self.domain_router = ManualDomainRouter(domain = DOMAIN.ALL.value)
+
+        # INIT
         self.load_documents()
 
     def load_documents(self):
@@ -73,23 +61,51 @@ class Rag:
 
     def invoke_full(self, query):
         builder = self.get_rag_type_builder()
-        final_chain = builder(self.get_llm(), self.get_rank_retriever())
+        final_chain = builder(self.get_llm(), self.get_retriever())
         
         response = final_chain.invoke(query)
         return response
 
-    def set_rank_retriever(self, retriever,  model_name="cross-encoder/ms-marco-MiniLM-L-6-v2", top_n=5): 
+    def get_retriever(self):
+        basic_retriever = self.get_basic_retriever(self.retrieve_num, self.threshold)
+        if self.is_rerank:
+            return self.get_rank_retriever(basic_retriever, model_name=self.reranker, top_n=self.top_n)
+        return basic_retriever
+
+    def get_basic_retriever(self, k=20, threshold=0.5):
+        return DomainRetriever(db=self.db, router=self.domain_router, k=k, threshold=threshold)
+
+    def get_rank_retriever(self, retriever,  model_name="cross-encoder/ms-marco-MiniLM-L-6-v2", top_n=5): 
         cross_encoder = HuggingFaceCrossEncoder(model_name=model_name)
         reranker = CrossEncoderReranker(model=cross_encoder, top_n=top_n)
 
-        self.rank_retriever = ContextualCompressionRetriever(
+        rank_retriever = ContextualCompressionRetriever(
             base_retriever=retriever,
             base_compressor=reranker
         )
-    
-    def get_rank_retriever(self):
-        return self.rank_retriever
+        return rank_retriever
 
+    def set_domain(self, domain: DOMAIN):
+        self.domain_router.set_domain(domain)
+
+    def set_top_n(self,n):
+        self.top_n = n
+    
+    def set_retrieve_num(self,n):
+        self.retrieve_num = n
+
+    def set_threshold(self, t):
+        self.threshold = t
+
+    def get_top_n(self):
+        return self.top_n
+    
+    def get_retrieve_num(self):
+        return self.retrieve_num
+    
+    def get_threshold(self):
+        return self.threshold
+    
     
     def get_rag_type(self):
         return self.rag_type
@@ -103,8 +119,6 @@ class Rag:
     def get_db(self):
         return self.db
     
-    def get_retriever(self):
-        return self.retriever
     
     def get_llm(self):
         return self.llm

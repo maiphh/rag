@@ -1,7 +1,6 @@
 from langchain_chroma import Chroma
-from config import settings
 from langsmith.run_helpers import traceable
-
+from enum_manager import *
 
 db_path = "db"
 SCORE_THRESHOLD = 0.5
@@ -12,8 +11,6 @@ class Database:
             persist_directory = db_path,
             embedding_function = embed
         )
-
-        self.retriever = self.db.as_retriever(search_type="similarity_score_threshold", search_kwargs={"k":20, "score_threshold": SCORE_THRESHOLD})
 
     def add_to_db(self, chunks):
         chunks_with_id = self.calculate_chunk_ids(chunks)
@@ -67,17 +64,11 @@ class Database:
     def get_loaded_src(self) -> list[str]:
         existing = self.db.get(include=["metadatas"])
         loaded_sources = {meta["source"] for meta in existing["metadatas"] if "source" in meta}
-        print("Already loaded:", loaded_sources)
         return list(loaded_sources)
     
     def clear(self):
         self.db.delete_collection()
         print("🗑️  Database cleared")
 
-    @traceable(name="retrieve")
-    def retrieve(self, query, threshold = SCORE_THRESHOLD):
-        return self.retriever.invoke(query, threshold = threshold)
-    
-    def get_retriever(self):
-        return self.retriever
+
 

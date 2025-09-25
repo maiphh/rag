@@ -3,17 +3,17 @@ import sys
 import traceback
 import os
 
-from rag import Rag, LLM, RagType
-from chain import simple_rag_chain, multi_query_chain, rag_fusion_chain
-
-# Map RagType to corresponding chain builder
+from enum_manager import *
+from rag import Rag
 
 MENU_OPTIONS = {
     "1": "Adjust LLM",
     "2": "Adjust RAG Type",
-    "3": "Query",
-    "4": "Clear DB",
-    "5": "Exit"
+    "3": "Adjust Domain",
+    "4": "Adjust Threshold",
+    "5": "Query",
+    "6": "Clear DB",
+    "7": "Exit"
 }
 
 def format_llm_name(llm_enum: LLM) -> str:
@@ -21,6 +21,9 @@ def format_llm_name(llm_enum: LLM) -> str:
 
 def format_rag_type(rag_type: RagType) -> str:
     return rag_type.name.title().replace("_", " ")
+
+def format_domain(domain_enum: DOMAIN) -> str:
+    return domain_enum.name.title().replace("_", " ")
 
 def print_header(rag: Rag):
     print("\n" + "=" * 60)
@@ -33,8 +36,20 @@ def print_header(rag: Rag):
             active_llm_value = enum_item
             break
     llm_display = active_llm_value.value if active_llm_value else getattr(rag.get_llm(), "model", "Unknown")
-    print(f"Active LLM    : {llm_display}")
-    print(f"Active ragType: {format_rag_type(rag.get_rag_type())}")
+
+    # Active Domain
+    active_domain_enum = None
+    current_domain_value = rag.get_domain() if hasattr(rag, "get_domain") else getattr(rag.domain_router, "domain", "unknown")
+    for d in DOMAIN:
+        if d.value == current_domain_value:
+            active_domain_enum = d
+            break
+    domain_display = format_domain(active_domain_enum) if active_domain_enum else current_domain_value
+
+    print(f"Active LLM     : {llm_display}")
+    print(f"Active RAG Type: {format_rag_type(rag.get_rag_type())}")
+    print(f"Active Domain  : {domain_display}")
+    print(f"Threshold      : {rag.get_threshold()}")
     print("-" * 60)
     for key, label in MENU_OPTIONS.items():
         print(f"{key}. {label}")
@@ -65,17 +80,52 @@ def adjust_rag_type(rag: Rag):
     for idx, rt in enumerate(rag_types, start=1):
         print(f"{idx}. {format_rag_type(rt)}")
     while True:
-        choice = input("Select ragType number (or 'c' to cancel): ").strip()
+        choice = input("Select RAG Type number (or 'c' to cancel): ").strip()
         if choice.lower() == 'c':
             return
         if choice.isdigit() and 1 <= int(choice) <= len(rag_types):
             rag.set_rag_type(rag_types[int(choice) - 1])
-            print(f"ragType set to {format_rag_type(rag.get_rag_type())}")
+            print(f"RAG Type set to {format_rag_type(rag.get_rag_type())}")
             return
         print("Invalid selection.")
 
-def run_query_session(rag: Rag):
+def adjust_domain(rag: Rag):
+    print("\nAvailable Domains:")
+    domains = list(DOMAIN)
+    for idx, d in enumerate(domains, start=1):
+        print(f"{idx}. {format_domain(d)} ({d.value})")
+    while True:
+        choice = input("Select Domain number (or 'c' to cancel): ").strip()
+        if choice.lower() == 'c':
+            return
+        if choice.isdigit() and 1 <= int(choice) <= len(domains):
+            selected = domains[int(choice) - 1]
+            try:
+                rag.set_domain(selected)
+                print(f"Domain set to {format_domain(selected)}")
+            except Exception as e:
+                print(f"Failed to set domain: {e}")
+            return
+        print("Invalid selection.")
 
+def adjust_threshold(rag: Rag):
+    print(f"\nCurrent threshold: {rag.get_threshold()}")
+    while True:
+        val = input("Enter new threshold (0.0 - 1.0) or 'c' to cancel: ").strip()
+        if val.lower() == 'c':
+            return
+        try:
+            f = float(val)
+            if 0.0 <= f <= 1.0:
+                rag.set_threshold(f)
+                print(f"Threshold set to {f}")
+                return
+            else:
+                print("Value out of range.")
+        except ValueError:
+            print("Invalid number.")
+
+def run_query_session(rag: Rag):
     print(f"\nEntering query mode with {format_rag_type(rag.get_rag_type())}. Type 'back' to return.")
     while True:
         q = input("\nQuery: ").strip()
@@ -127,10 +177,14 @@ def main():
         elif choice == "2":
             adjust_rag_type(rag)
         elif choice == "3":
-            run_query_session(rag)
+            adjust_domain(rag)
         elif choice == "4":
-            clear_db(rag)
+            adjust_threshold(rag)
         elif choice == "5":
+            run_query_session(rag)
+        elif choice == "6":
+            clear_db(rag)
+        elif choice == "7":
             print("Goodbye.")
             break
         else:
