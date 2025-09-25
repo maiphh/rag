@@ -27,7 +27,7 @@ class RagType(Enum):
 RAG_TYPE_BUILDERS = {
     RagType.SIMPLE: simple_rag_chain,
     RagType.MULTI_QUERY: multi_query_chain,
-    RagType.RAG_FUSION: rag_fusion_chain,
+    # RagType.RAG_FUSION: rag_fusion_chain,
 }
 
 

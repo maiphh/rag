@@ -28,8 +28,8 @@ class DocumentLoader:
     def __init__(self, embed):
         
         self.embed = embed
-        self.splitter = SemanticChunker(embed)
-        # self.splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=100)
+        # self.splitter = SemanticChunker(embed)
+        self.splitter = RecursiveCharacterTextSplitter(chunk_size=400, chunk_overlap=0)
         # self.splitter = KamradtModifiedChunker(avg_chunk_size=400, min_chunk_size=50, embedding_function= self.embed)
 
         self.converter = DocumentConverter()

@@ -44,8 +44,16 @@ def multi_query_chain(llm, retriever):
         | split_queries
     )
 
+    generate_queries_chain_with_original = (
+        RunnableParallel(
+            question=RunnablePassthrough(),   # pass the original question forward
+            queries=generate_queries_chain    # run the alt query generator
+        )
+        | RunnableLambda(lambda x: [x["question"], *x["queries"]])  # merge them into one list
+)
+
     retrieval_chain = (
-        generate_queries_chain
+        generate_queries_chain_with_original
         | retriever.map()
         | get_unique_union
     )
@@ -58,7 +66,7 @@ def multi_query_chain(llm, retriever):
     prompt = ChatPromptTemplate.from_template(prompt_template.QA_TEMPLATE)
 
     final_chain = (
-        {"context": itemgetter("docs") | RunnableLambda(format_docs), "question": RunnablePassthrough()}
+        {"context": itemgetter("docs") | RunnableLambda(format_docs), "question": itemgetter("question")}
         | prompt
         | llm
         | StrOutputParser()
@@ -72,7 +80,7 @@ def multi_query_chain(llm, retriever):
         })
     )
 
-def rag_fusion_chain(llm, retriever):
+# def rag_fusion_chain(llm, retriever):
 
     prompt_perspectives = ChatPromptTemplate.from_template(prompt_template.MULTI_QUERY_TEMPLATE)
 
