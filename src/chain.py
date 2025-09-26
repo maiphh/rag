@@ -5,7 +5,6 @@ from langchain_core.runnables import RunnablePassthrough, RunnableParallel, Runn
 from util import *
 from operator import itemgetter
 import prompt_template
-from langchain.retrievers import ContextualCompressionRetriever
 
 
 

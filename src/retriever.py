@@ -33,6 +33,7 @@ class DomainRetriever(BaseRetriever):
                 seen.add(key)
                 dedup.append(doc)
         return dedup
+    
 
 class BasicRetriever(BaseRetriever):
     db: Database

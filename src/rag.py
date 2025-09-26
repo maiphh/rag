@@ -12,6 +12,7 @@ from langchain.retrievers import ContextualCompressionRetriever
 from enum_manager import *
 from router import ManualDomainRouter
 from retriever import BasicRetriever, DomainRetriever
+from reranker import CrossEncoderRerankerWithScores
 
 class Rag:
     def __init__(self):
@@ -24,8 +25,11 @@ class Rag:
         self.rag_type = RagType.SIMPLE
 
         # DB
-        self.document_loader = DocumentLoader(self.embed)
-        self.db = Database(self.embed)
+        self.cache_dir = "data/cache"
+        self.document_loader = DocumentLoader(embed = self.embed, cache_dir=self.cache_dir)
+
+        self.db_dir = "db"
+        self.db = Database(self.embed, self.db_dir, self.cache_dir)
 
         # RETRIEVER
         self.retrieve_num = 20
@@ -40,26 +44,57 @@ class Rag:
         # INIT
         self.load_documents()
 
-    def load_documents(self):
-        loaded = self.db.get_loaded_src()
-        docs = self.document_loader.load_documents(loaded_files=loaded)
+    def load_cached_documents(self):
+        loaded_src = self.get_loaded_src()
+        cached_src = self.db.get_cached_src()
+
+        unloaded_src = [s for s in cached_src if s not in loaded_src]
+
+        docs = self.db.get_cached_docs(unloaded_src)
 
         if docs:
-            chunks = self.document_loader.split_documents(docs)
-            self.db.add_to_db(chunks)
+            chunks = self.db.split_documents(docs)
+            self.db.add(chunks)
         return docs
+
+
+    # def load_documents(self):
+    #     loaded = self.get_loaded_src()
+    #     cached = self.db.get_cached_src()
+    #     union = set(loaded).union(set(cached))
+
+    #     self.document_loader.load_documents(loaded_files=union)
+
+    #     # if docs:
+    #     #     chunks = self.db.split_documents(docs)
+    #     #     self.db.add(chunks)
+    #     # return docs
+    #     return self.load_cached_documents()
+    
+    def load_documents(self):
+        loaded = self.get_loaded_src()
+        docs = self.document_loader.load_documents(loaded_files=loaded)
+        if docs:
+            chunks = self.db.split_documents(docs)
+            self.db.add(chunks)
+        return docs
+
+    
+    def get_loaded_src(self):
+        return self.db.get_loaded_src()
     
     def clear_db(self):
         self.db.clear()
+        self.db = Database(self.embed, self.db_dir, self.cache_dir)
 
-    def invoke(self, query):
-        response = self.invoke_full(query)
+    def invoke_simplify(self, query):
+        response = self.invoke(query)
         answer = response["answer"]
         docs = response["docs"]
 
         return answer, docs
 
-    def invoke_full(self, query):
+    def invoke(self, query):
         builder = self.get_rag_type_builder()
         final_chain = builder(self.get_llm(), self.get_retriever())
         
@@ -77,13 +112,16 @@ class Rag:
 
     def get_rank_retriever(self, retriever,  model_name="cross-encoder/ms-marco-MiniLM-L-6-v2", top_n=5): 
         cross_encoder = HuggingFaceCrossEncoder(model_name=model_name)
-        reranker = CrossEncoderReranker(model=cross_encoder, top_n=top_n)
+        reranker = CrossEncoderRerankerWithScores(model=cross_encoder, top_n=top_n)
 
         rank_retriever = ContextualCompressionRetriever(
             base_retriever=retriever,
             base_compressor=reranker
         )
         return rank_retriever
+    
+    def clear_cache(self):
+        self.db.clear_cache()
 
     def set_domain(self, domain: DOMAIN):
         self.domain_router.set_domain(domain)

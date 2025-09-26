@@ -1,28 +1,39 @@
-from langchain_community.document_loaders import PyPDFDirectoryLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_experimental.text_splitter import SemanticChunker
-from chunking_evaluation.chunking import KamradtModifiedChunker
-
-from langchain_chroma import Chroma
 from pathlib import Path
 from langchain_core.documents import Document
-from docling.document_converter import DocumentConverter
+from docling.datamodel.base_models import InputFormat
+from docling.datamodel.pipeline_options import PdfPipelineOptions
+from docling.document_converter import DocumentConverter, PdfFormatOption
+from docling.backend.docling_parse_v2_backend import DoclingParseV2DocumentBackend
 from langchain_core.document_loaders import BaseLoader
-from typing import Iterable, List, Optional
+import json  # added
+import hashlib  # added
+
 from enum_manager import *
 default_root = "data"
 
 class DoclingLoader(BaseLoader):
-    def __init__(self, path: str | list[str]):
+    def __init__(self, path: str | list[str], cache_dir="data/cache"):
         self._file_paths = path if isinstance(path,list) else [path]
-        self._converter = DocumentConverter()
+
+        pipeline_options = PdfPipelineOptions()
+        pipeline_options.do_ocr = False # pick what you need  
+        self._converter = DocumentConverter(
+            format_options={
+                InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options, backend=DoclingParseV2DocumentBackend)
+            }
+        )
+        self.cache_dir = cache_dir
+
+          
     
     def lazy_load(self):
         for path in self._file_paths:
             docling_doc = self._converter.convert(path).document
             text = docling_doc.export_to_markdown()
             domain = self.get_domain_from_path(path)
-            yield Document(page_content=text, metadata={"source": str(path), "domain": domain})
+            metadata = {"source": str(path), "domain": domain}
+            self.cache(text, metadata)
+            yield Document(page_content=text, metadata=metadata)
 
     def get_domain_from_path(self,path: str) -> str | None:
         p = Path(path).resolve()
@@ -33,23 +44,52 @@ class DoclingLoader(BaseLoader):
             if name in domain_map:
                 return domain_map[name].value  # or domain_map[name].value
         return DOMAIN.ALL.value
+    
+    def cache(self, content, metadata):
+        src = metadata.get("source", "unknown")
+        cache_path = Path(self.cache_dir)
+        cache_path.mkdir(parents=True, exist_ok=True)
 
-        
+        # Build deterministic, safe filename
+        base_name = "unknown" if src == "unknown" else Path(src).name
+        safe_name = base_name.replace(" ", "_")
+        file_name = f"{safe_name}.json"
+        file_path = cache_path / file_name
+
+        # Prepare JSON payload (note: key 'metdata' as specified)
+        payload = {
+            "content": content,
+            "metadata": metadata,
+        }
+
+        # If file exists with identical payload, skip rewrite
+        if file_path.exists():
+            try:
+                existing = json.loads(file_path.read_text(encoding="utf-8"))
+                if existing == payload:
+                    return file_path
+            except Exception:
+                pass  # proceed to overwrite if unreadable / malformed
+
+        tmp_path = file_path.with_suffix(".tmp")
+        with tmp_path.open("w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        tmp_path.replace(file_path)
+
+        return file_path
 
 class DocumentLoader:
     
-    def __init__(self, embed):
+    def __init__(self, embed, cache_dir):
         
         self.embed = embed
-        # self.splitter = SemanticChunker(embed)
-        self.splitter = RecursiveCharacterTextSplitter(chunk_size=400, chunk_overlap=0)
-        # self.splitter = KamradtModifiedChunker(avg_chunk_size=400, min_chunk_size=50, embedding_function= self.embed)
-
-        self.converter = DocumentConverter()
+    
         # Supported file extensions
         self.supported_extensions = {
             '.pdf', '.docx', '.doc', '.xlsx', '.xls', '.html', '.htm', '.md', '.txt'
         }
+
+        self.cache_dir = cache_dir
 
 
 
@@ -62,7 +102,7 @@ class DocumentLoader:
             return []
         
         # loader = PyPDFDirectoryLoader(root)
-        loader = DoclingLoader(unloaded_files)
+        loader = DoclingLoader(unloaded_files,self.cache_dir)
         return loader.load()
 
     def get_all_files(self, root=default_root) -> list[str]:
@@ -73,10 +113,9 @@ class DocumentLoader:
         files = []
         for path in root_path.rglob("*"):  # rglob('*') = recursive glob
             if path.is_file():
-                files.append(str(path.resolve()))  # absolute path
+                if path.suffix.lower() in self.supported_extensions:
+                    files.append(str(path.resolve()))  # absolute path
         return files
-    
-    def split_documents(self, documents):
-        return self.splitter.split_documents(documents)
-    
+
+
 

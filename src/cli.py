@@ -6,14 +6,17 @@ import os
 from enum_manager import *
 from rag import Rag
 
+# Re-ordered and expanded menu:
 MENU_OPTIONS = {
-    "1": "Adjust LLM",
-    "2": "Adjust RAG Type",
-    "3": "Adjust Domain",
-    "4": "Adjust Threshold",
-    "5": "Query",
-    "6": "Clear DB",
-    "7": "Exit"
+    "1": "Query",
+    "2": "Adjust LLM",
+    "3": "Adjust RAG Type",
+    "4": "Adjust Domain",
+    "5": "Adjust Threshold",
+    "6": "Load New Docs",
+    "7": "Clear Cache",
+    "8": "Clear DB",
+    "9": "Exit"
 }
 
 def format_llm_name(llm_enum: LLM) -> str:
@@ -136,11 +139,13 @@ def run_query_session(rag: Rag):
             return
         try:
             print("Processing...")
-            result, docs = rag.invoke(q)
+            response = rag.invoke(q)
+            answer = response.get("answer", "No answer.")
+            docs = response.get("docs", [])
             print("\n" + "-" * 50)
             print("RESULT")
             print("-" * 50)
-            print(result)
+            print(answer)
             print("-" * 50)
         except KeyboardInterrupt:
             print("\nCancelled.")
@@ -148,6 +153,15 @@ def run_query_session(rag: Rag):
             print(f"Error: {e}")
             if os.getenv("DEBUG"):
                 traceback.print_exc()
+
+def load_new_docs(rag:Rag):
+    rag.load_documents()
+
+def clear_cache(rag: Rag):
+    """
+    Clear any in-memory or persisted cache. Expects Rag.clear_cache().
+    """
+    rag.clear_cache()
 
 def clear_db(rag: Rag):
     confirm = input("Type 'yes' to confirm clearing database: ").strip().lower()
@@ -173,18 +187,22 @@ def main():
         print_header(rag)
         choice = input("Select option: ").strip()
         if choice == "1":
-            adjust_llm(rag)
-        elif choice == "2":
-            adjust_rag_type(rag)
-        elif choice == "3":
-            adjust_domain(rag)
-        elif choice == "4":
-            adjust_threshold(rag)
-        elif choice == "5":
             run_query_session(rag)
+        elif choice == "2":
+            adjust_llm(rag)
+        elif choice == "3":
+            adjust_rag_type(rag)
+        elif choice == "4":
+            adjust_domain(rag)
+        elif choice == "5":
+            adjust_threshold(rag)
         elif choice == "6":
-            clear_db(rag)
+            load_new_docs(rag)
         elif choice == "7":
+            clear_cache(rag)
+        elif choice == "8":
+            clear_db(rag)
+        elif choice == "9":
             print("Goodbye.")
             break
         else:

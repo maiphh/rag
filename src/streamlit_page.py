@@ -2,6 +2,10 @@ import streamlit as st
 from dotenv import load_dotenv
 from rag import Rag, LLM, RagType
 from enum_manager import DOMAIN   # <-- added import
+from pathlib import Path          # <-- new
+import re                         # <-- new
+import zipfile                    # <-- new
+import io                         # <-- new
 
 load_dotenv()
 
@@ -35,6 +39,74 @@ def parse_domain(label: str) -> DOMAIN:
     lookup = {format_domain(d): d for d in DOMAIN}
     return lookup[label]
 
+def _safe_filename(name: str) -> str:
+    # Keep extension, sanitize rest
+    name = name.strip()
+    if not name:
+        name = "uploaded"
+    # Split extension
+    if "." in name:
+        base, ext = name.rsplit(".", 1)
+        ext = "." + ext
+    else:
+        base, ext = name, ""
+    base = re.sub(r"[^A-Za-z0-9._-]", "_", base)[:120] or "file"
+    return base + ext
+
+def _unique_path(dir_path: Path, filename: str) -> Path:
+    candidate = dir_path / filename
+    if not candidate.exists():
+        return candidate
+    base, ext = (filename.rsplit(".", 1) + [""])[:2]
+    if ext:
+        ext = "." + ext
+    base_clean = base
+    i = 1
+    while candidate.exists():
+        candidate = dir_path / f"{base_clean}_{i}{ext}"
+        i += 1
+    return candidate
+
+def _save_uploaded_files(domain: DOMAIN, uploaded_files):
+    save_dir = Path("data") / domain.value
+    save_dir.mkdir(parents=True, exist_ok=True)
+    saved_paths = []
+    extracted_paths = []
+    for uf in uploaded_files:
+        fname = _safe_filename(uf.name)
+        # If it's a zip, extract
+        if fname.lower().endswith(".zip"):
+            try:
+                z = zipfile.ZipFile(io.BytesIO(uf.getbuffer()))
+                for member in z.infolist():
+                    if member.is_dir():
+                        continue
+                    inner_name = _safe_filename(Path(member.filename).name)
+                    inner_path = _unique_path(save_dir, inner_name)
+                    with z.open(member) as src, open(inner_path, "wb") as dst:
+                        dst.write(src.read())
+                    extracted_paths.append(str(inner_path))
+            except zipfile.BadZipFile:
+                # Fallback: save raw
+                path = _unique_path(save_dir, fname)
+                with open(path, "wb") as out:
+                    out.write(uf.getbuffer())
+                saved_paths.append(str(path))
+        else:
+            path = _unique_path(save_dir, fname)
+            with open(path, "wb") as out:
+                out.write(uf.getbuffer())
+            saved_paths.append(str(path))
+    return saved_paths, extracted_paths
+
+def _index_domain(domain: DOMAIN):
+    # Try domain-aware loading; fallback otherwise
+    try:
+        added = rag.load_documents(domain=domain.value)
+    except TypeError:
+        added = rag.load_documents()
+    return added
+
 # ---------------- Sidebar ----------------
 with st.sidebar:
     st.header("⚙️ Settings")
@@ -64,7 +136,6 @@ with st.sidebar:
         current_domain_value = rag.get_domain()
     except AttributeError:
         current_domain_value = getattr(getattr(rag, "domain_router", {}), "domain", None)
-    # map current value to label
     current_domain_enum = None
     for d in DOMAIN:
         if d.value == current_domain_value or d.name == str(current_domain_value):
@@ -94,6 +165,40 @@ with st.sidebar:
         with st.spinner("Loading documents..."):
             added = rag.load_documents()
             st.success(f"Loaded {len(added)} new documents." if added else "No new documents found.")
+
+    # NEW: Load only new docs
+    if st.button("🆕 Load New Docs"):
+        with st.spinner("Loading new documents..."):
+            try:
+                if hasattr(rag, "load_new_documents"):
+                    added = rag.load_new_documents()
+                else:
+                    # Try a parameter; fallback to normal
+                    try:
+                        added = rag.load_documents(new_only=True)
+                    except TypeError:
+                        added = rag.load_documents()
+                st.success(f"Loaded {len(added)} new documents." if added else "No new documents found.")
+            except Exception as e:
+                st.error(f"Failed: {e}")
+
+    # NEW: Clear cache
+    if st.button("🧹 Clear Cache"):
+        try:
+            cleared = False
+            if hasattr(rag, "clear_cache"):
+                rag.clear_cache()
+                cleared = True
+            elif hasattr(rag, "retriever") and hasattr(rag.retriever, "clear_cache"):
+                rag.retriever.clear_cache()
+                cleared = True
+            if cleared:
+                st.success("Cache cleared.")
+            else:
+                st.info("No cache interface available.")
+        except Exception as e:
+            st.error(f"Cache clear failed: {e}")
+
     if st.button("🗑️ Clear Chat"):
         st.session_state.messages = []
         st.rerun()
@@ -107,61 +212,149 @@ with st.sidebar:
         pass
     st.caption(f"Threshold: {new_threshold:.2f}")
 
-# ---------------- Main UI ----------------
-st.title("📚 RAG Document Q&A")
-st.caption("Ask questions over your documents with selectable LLM + Retrieval strategy.")
+# ---------------- Tabs ----------------
+chat_tab, upload_tab = st.tabs(["💬 Chat", "📤 Upload Documents"])
 
-# Display history
-for m in st.session_state.messages:
-    with st.chat_message(m["role"]):
-        st.markdown(m["content"])
-        if m["role"] == "assistant" and m.get("sources"):
-            with st.expander(f"📄 Retrieved Documents ({len(m['sources'])})"):
-                for i, src in enumerate(m["sources"], start=1):
-                    st.markdown(f"**{i}. {src['source']}**")
-                    if src.get("content"):
-                        st.code(src["content"], language="markdown")
+# ---------------- Chat Tab ----------------
+with chat_tab:
+    st.title("📚 RAG Document Q&A")
+    st.caption("Ask questions over your documents with selectable LLM + Retrieval strategy.")
 
-# Input
-if prompt := st.chat_input("Ask something..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
-            answer = "Error: Unknown"
-            sources_payload = []
-            try:
-                answer, retrieved_docs = rag.invoke(prompt)
-                for d in retrieved_docs:
-                    meta = getattr(d, "metadata", {}) or {}
-                    source = meta.get("source") or meta.get("file_path") or "Unknown source"
-                    content = getattr(d, "page_content", "")[:650]
-                    sources_payload.append({
-                        "source": source,
-                        "content": content
-                    })
-            except Exception as e:
-                answer = f"Error: {e}"
-
-            st.markdown(answer)
-            if sources_payload:
-                with st.expander(f"📄 Retrieved Documents ({len(sources_payload)})", expanded=False):
-                    for i, src in enumerate(sources_payload, start=1):
-                        st.markdown(f"**{i}. {src['source']}**")
+    # Display history
+    for idx, m in enumerate(st.session_state.messages):
+        with st.chat_message(m["role"]):
+            st.markdown(m["content"])
+            if m["role"] == "assistant" and m.get("sources"):
+                # Find preceding user query for numbering as item 1
+                user_query = None
+                for back in range(idx - 1, -1, -1):
+                    if st.session_state.messages[back]["role"] == "user":
+                        user_query = st.session_state.messages[back]["content"]
+                        break
+                with st.expander(f"📄 Retrieved Documents ({len(m['sources'])})"):
+                    # Query as item 1
+                    if user_query:
+                        st.markdown(f"**1. Query:** {user_query}")
+                        start_num = 2
+                    else:
+                        start_num = 1
+                    for i, src in enumerate(m["sources"], start=start_num):
+                        conf = src.get("confidence")
+                        conf_label = src.get("confidence_label")
+                        if conf is not None:
+                            try:
+                                conf_str = f"{float(conf):.2f}"
+                            except Exception:
+                                conf_str = str(conf)
+                            meta_line = f" | Confidence: {conf_str} ({conf_label})"
+                        else:
+                            meta_line = ""
+                        st.markdown(f"**{i}. {src['source']}**{meta_line}")
                         if src.get("content"):
                             st.code(src["content"], language="markdown")
-                            # st.markdown(src["content"])
 
-    st.session_state.messages.append({
-        "role": "assistant",
-        "content": answer,
-        "sources": sources_payload
-    })
+    # Input
+    if prompt := st.chat_input("Ask something..."):
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
 
-st.markdown("---")
-st.markdown(
-    "<div style='text-align:center; color:#666; font-size:0.8em;'>Powered by custom RAG (Ollama + LangChain)</div>",
-    unsafe_allow_html=True
-)
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                answer = "Error: Unknown"
+                sources_payload = []
+                try:
+                    response = rag.invoke(prompt)
+                    answer = response.get("answer", "No answer.")
+                    docs = response.get("docs", [])
+                    for d in docs:
+                        meta = getattr(d, "metadata", {}) or {}
+                        source = meta.get("source") or meta.get("file_path") or "Unknown source"
+                        confidence_score = meta.get("confidence", 0)
+                        confidence_label = meta.get("confidence_label", "unknown")
+
+                        content = getattr(d, "page_content", "")[:650]
+                        sources_payload.append({
+                            "source": source,
+                            "content": content,
+                            "confidence": confidence_score,
+                            "confidence_label": confidence_label
+                        })
+                except Exception as e:
+                    answer = f"Error: {e}"
+
+                st.markdown(answer)
+                if sources_payload:
+                    with st.expander(f"📄 Retrieved Documents ({len(sources_payload)})", expanded=False):
+                        # Query as item 1
+                        st.markdown(f"**1. Query:** {prompt}")
+                        for i, src in enumerate(sources_payload, start=2):
+                            conf = src.get("confidence")
+                            conf_label = src.get("confidence_label")
+                            if conf is not None:
+                                try:
+                                    conf_str = f"{float(conf):.2f}"
+                                except Exception:
+                                    conf_str = str(conf)
+                                meta_line = f" | Confidence: {conf_str} ({conf_label})"
+                            else:
+                                meta_line = ""
+                            st.markdown(f"**{i}. {src['source']}**{meta_line}")
+                            if src.get("content"):
+                                st.code(src["content"], language="markdown")
+
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": answer,
+            "sources": sources_payload
+        })
+
+    st.markdown("---")
+    st.markdown(
+        "<div style='text-align:center; color:#666; font-size:0.8em;'>Powered by custom RAG (Ollama + LangChain)</div>",
+        unsafe_allow_html=True
+    )
+
+# ---------------- Upload Tab ----------------
+with upload_tab:
+    st.header("📤 Domain Document Upload")
+    st.caption("Upload or drag multiple files (.pdf, .txt, .md, .docx, or .zip) for each domain. Zips are extracted.")
+    st.markdown(
+        """
+        - Each domain stores files under data/<domain_code> (e.g. data/pyr).
+        - Uploading a .zip extracts its contents (files only).
+        - Duplicate names get an auto-incremented suffix.
+        - After uploading, click Index to parse and embed new documents.
+        """
+    )
+    st.markdown("---")
+
+    for d in DOMAIN:
+        with st.expander(f"📁 {format_domain(d)}  (folder: data/{d.value})", expanded=False):
+            uploaded = st.file_uploader(
+                f"Drop files for {format_domain(d)}",
+                accept_multiple_files=True,
+                type=["pdf", "txt", "md", "docx", "zip"],
+                key=f"uploader_{d.name}"
+            )
+            if uploaded:
+                saved, extracted = _save_uploaded_files(d, uploaded)
+                total = len(saved) + len(extracted)
+                if total:
+                    st.success(f"Saved {len(saved)} files, extracted {len(extracted)} from zips (total {total}).")
+                    if len(saved):
+                        st.caption("Saved: " + ", ".join(Path(p).name for p in saved[:6]) + (" ..." if len(saved) > 6 else ""))
+                    if len(extracted):
+                        st.caption("Extracted: " + ", ".join(Path(p).name for p in extracted[:6]) + (" ..." if len(extracted) > 6 else ""))
+                    if st.button(f"Index {format_domain(d)} Documents", key=f"index_btn_{d.name}"):
+                        with st.spinner("Indexing..."):
+                            try:
+                                added = _index_domain(d)
+                                st.success(f"Indexed {len(added)} new documents." if added else "No new documents to index.")
+                            except Exception as e:
+                                st.error(f"Indexing failed: {e}")
+                else:
+                    st.warning("No files processed.")
+
+    st.markdown("---")
+    st.caption("Tip: For folder upload, compress the folder into a .zip and drop it here.")

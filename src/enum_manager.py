@@ -26,3 +26,4 @@ class DOMAIN(Enum):
 
 class RERANKER(Enum):
     MACRO_MINI = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    # MACRO_MINI = "models/cross-encoder/ms-marco-MiniLM-L-6-v2"

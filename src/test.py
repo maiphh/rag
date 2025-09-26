@@ -1,14 +1,11 @@
-from enum_manager import *
+from huggingface_hub import snapshot_download
+from dotenv import load_dotenv
 from pathlib import Path
+import json
 
-def get_domain_from_path(path: str) -> str | None:
-        p = Path(path).resolve()
-        domain_map = {d.value.lower(): d for d in DOMAIN}
+def get_json_from_path(path: str) -> dict:
+        p = Path(path)
+        with p.open("r", encoding="utf-8") as f:
+            return json.load(f)
 
-        for parent in p.parents:
-            name = parent.name.lower()
-            if name in domain_map:
-                return domain_map[name].value  # or domain_map[name].value
-        return DOMAIN.ALL.value
-
-print(get_domain_from_path("/Users/phu.mai/Projects/rag/data/Hướng dẫn dùng chức năng Scan trên máy Fuji.docx"))
+print(get_json_from_path("/Users/phu.mai/Projects/rag/data/cache/The_Japan_s_AI_White_Paper_English_Translaiton__1684318555.pdf.json"))

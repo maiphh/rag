@@ -1,0 +1,1 @@
+git clone https://hf-mirror.com/cross-encoder/ms-marco-MiniLM-L6-v2 models/cross-encoder/ms-marco-MiniLM-L-6-v2
