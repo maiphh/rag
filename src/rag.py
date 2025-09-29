@@ -14,6 +14,9 @@ from router import ManualDomainRouter
 from retriever import BasicRetriever, DomainRetriever
 from reranker import CrossEncoderRerankerWithScores
 from pathlib import Path
+import pandas as pd
+from typing import List, Dict
+
 
 class Rag:
     def __init__(self):
@@ -34,7 +37,7 @@ class Rag:
 
         # RETRIEVER
         self.retrieve_num = 20
-        self.top_n = 8  # for reranker
+        self.top_n = 5  # for reranker
         self.threshold = 0
         self.is_rerank = True
         self.reranker = RERANKER.MACRO_MINI.value
@@ -171,4 +174,14 @@ class Rag:
         return f"RAG Type: {self.rag_type.name}, LLM: {self.llm.model}, Embedding: {self.embed.model}"
 
     
-    
+    def evaluate_retrieval_performance(self) -> Dict:
+        """Evaluate retrieval performance using test queries"""
+        from evaluator import RetrievalEvaluator
+        evaluator = RetrievalEvaluator(self)
+        return evaluator.evaluate()
+
+    def benchmark_retrieval_settings(self, test_queries: List[Dict]) -> pd.DataFrame:
+        """Benchmark different retrieval settings"""
+        from evaluator import RetrievalEvaluator
+        evaluator = RetrievalEvaluator(self)
+        return evaluator.benchmark_different_settings(test_queries)

@@ -121,21 +121,38 @@ def _render_rag_content_block(content: str):
     if not content:
         st.info("No preview available.")
         return
+    
+    # Convert markdown to HTML and render within the styled wrapper
+    import markdown
+    
+    try:
+        # Convert markdown to HTML
+        html_content = markdown.markdown(content, extensions=['extra', 'codehilite'])
+    except ImportError:
+        # Fallback: basic markdown conversion if markdown package not available
+        html_content = content.replace('\n', '<br>').replace('**', '<strong>').replace('*', '<em>')
+        html_content = html_content.replace('<em><strong>', '<strong><em>').replace('</strong></em>', '</em></strong>')
+    
+    # Render everything in one HTML block
     st.markdown(
         f"""
         <div style="
-            background-color:rgba(240,240,240,0.4);
-            padding:0.75rem;
-            border-radius:0.5rem;
-            white-space:pre-wrap;
-            word-break:break-word;
-            font-family:var(--font-mono);
-            font-size:0.85rem;
+            background-color: #000000;
+            border: 1px solid rgba(200, 210, 220, 0.6);
+            border-left: 4px solid #4A90E2;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin: 0.5rem 0;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            font-family: 'Source Code Pro', monospace;
+            font-size: 0.85rem;
+            line-height: 1.5;
+            color: #a6a6a6;
         ">
-            {html.escape(content)}
+        {html_content}
         </div>
         """,
-        unsafe_allow_html=True,
+        unsafe_allow_html=True
     )
 
 def _render_retrieved_documents(query, sources, base_key: str, expanded: bool = False):
