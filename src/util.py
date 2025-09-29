@@ -1,6 +1,7 @@
 from langchain.load import dumps, loads
 from sentence_transformers import CrossEncoder
 from langchain_core.runnables import RunnableLambda
+from pathlib import Path
 def split_queries(queries : str):
     return [q.strip() for q in queries.splitlines() if q.strip()]
 
@@ -74,4 +75,24 @@ def rerank_docs(top_n=5, model="cross-encoder/ms-marco-MiniLM-L-6-v2"):
         return reranked[:top_n]
     return RunnableLambda(_fn)
 
+def build_match_tokens(values):
+    tokens = set()
+    for value in values:
+        if not value:
+            continue
+        text = str(value)
+        variants = {
+            text,
+            text.replace(" ", "_"),
+        }
 
+        p = Path(text)
+        variants.update({
+            p.stem,
+            p.name,
+            p.stem.replace(" ", "_"),
+            p.name.replace(" ", "_"),
+        })
+
+        tokens.update(v.lower() for v in variants if v)
+    return tokens

@@ -13,6 +13,7 @@ from enum_manager import *
 from router import ManualDomainRouter
 from retriever import BasicRetriever, DomainRetriever
 from reranker import CrossEncoderRerankerWithScores
+from pathlib import Path
 
 class Rag:
     def __init__(self):
@@ -20,8 +21,8 @@ class Rag:
             print(".env file not found")
 
         # LLM + EMBEDDING
-        self.llm = ChatOllama(model = LLM.GEMMA3_1B.value)
-        self.embed = OllamaEmbeddings(model = EMBEDDING.NOMIX_EMBED_TEXT.value)
+        self.llm = ChatOllama(model = LLM.LLAMA3_2.value)
+        self.embed = OllamaEmbeddings(model = EMBEDDING.MX_BAI.value)
         self.rag_type = RagType.SIMPLE
 
         # DB
@@ -33,8 +34,8 @@ class Rag:
 
         # RETRIEVER
         self.retrieve_num = 20
-        self.top_n = 4  # for reranker
-        self.threshold = 0.5
+        self.top_n = 8  # for reranker
+        self.threshold = 0
         self.is_rerank = True
         self.reranker = RERANKER.MACRO_MINI.value
 
@@ -42,42 +43,32 @@ class Rag:
         self.domain_router = ManualDomainRouter(domain = DOMAIN.ALL.value)
 
         # INIT
-        self.load_documents()
+        self.load_cached_documents()
 
     def load_cached_documents(self):
-        loaded_src = self.get_loaded_src()
-        cached_src = self.db.get_cached_src()
-
-        unloaded_src = [s for s in cached_src if s not in loaded_src]
-
-        docs = self.db.get_cached_docs(unloaded_src)
-
-        if docs:
-            chunks = self.db.split_documents(docs)
-            self.db.add(chunks)
-        return docs
+        self.db.load_cached_docs()
 
 
-    # def load_documents(self):
-    #     loaded = self.get_loaded_src()
-    #     cached = self.db.get_cached_src()
-    #     union = set(loaded).union(set(cached))
-
-    #     self.document_loader.load_documents(loaded_files=union)
-
-    #     # if docs:
-    #     #     chunks = self.db.split_documents(docs)
-    #     #     self.db.add(chunks)
-    #     # return docs
-    #     return self.load_cached_documents()
-    
     def load_documents(self):
         loaded = self.get_loaded_src()
-        docs = self.document_loader.load_documents(loaded_files=loaded)
-        if docs:
-            chunks = self.db.split_documents(docs)
-            self.db.add(chunks)
-        return docs
+        cached = self.db.get_cached_src()
+        processed = set(loaded + cached)
+
+        self.document_loader.load_documents(loaded_files=[Path(file).stem for file in processed])
+
+        # if docs:
+        #     chunks = self.db.split_documents(docs)
+        #     self.db.add(chunks)
+        # return docs
+        return self.load_cached_documents()
+    
+    # def load_documents(self):
+    #     loaded = self.get_loaded_src()
+    #     docs = self.document_loader.load_documents(loaded_files=loaded)
+    #     if docs:
+    #         chunks = self.db.split_documents(docs)
+    #         self.db.add(chunks)
+    #     return docs
 
     
     def get_loaded_src(self):

@@ -6,6 +6,8 @@ from langchain_core.documents import Document
 import json  # add
 from pathlib import Path
 import shutil
+from langchain_experimental.text_splitter import SemanticChunker
+from util import *
     
 class Database:
     def __init__(self, embed, dir, cache_dir):
@@ -15,7 +17,7 @@ class Database:
         )
 
         # self.splitter = SemanticChunker(embed)
-        self.splitter = RecursiveCharacterTextSplitter(chunk_size=400, chunk_overlap=0)
+        self.splitter = RecursiveCharacterTextSplitter(chunk_size=2000, chunk_overlap=200)
         # self.splitter = KamradtModifiedChunker(avg_chunk_size=400, min_chunk_size=50, embedding_function= self.embed)
         self.source_id_map = {}  # source file path -> list of chunk IDs
         self.cache_dir = cache_dir
@@ -119,35 +121,47 @@ class Database:
         print(raw)
         
         
-    def get_cached_docs(self, paths: list[str]) -> list[Document]:
+    def get_cached_docs(self) -> list[Document]:
+        loaded_tokens = build_match_tokens(self.get_loaded_src())
+
         docs = []
-        for fp in self.get_cached_src():
+
+        for cached_file in self._list_cache_files():
+            cache_tokens = build_match_tokens([
+                cached_file.name,
+                cached_file.stem,
+                cached_file.with_suffix("").name,
+            ])
+            if not cache_tokens.isdisjoint(loaded_tokens):
+                continue
             try:
-                raw = self.get_json_from_path(str(fp))
-                metadata = raw.get("metadata")
-                source = metadata.get("source")
-                if source and source not in paths:
-                    docs.append(self.parse_json_to_document(str(fp)))
+                docs.append(self.parse_json_to_document(str(cached_file)))
             except Exception as e:
-                print(f"⚠️  Skipping {fp}: {e}")
-        
-        if not len(docs):
+                print(f"⚠️  Skipping {cached_file.stem}: {e}")
+
+        if not docs:
             print("No cached documents found.")
         return docs
 
-    def get_cached_src(self) -> list[str]:
-        cache_path = Path(self.cache_dir)
-        if not cache_path.exists():
-            return []
 
-        srcs = []
-        for fp in cache_path.glob("*.json"):
-            raw = self.get_json_from_path(str(fp))
-            metadata = raw.get("metadata")
-            source = metadata.get("source")
-            if source and source not in srcs:
-                srcs.append(source)
-        return srcs
+    
+    
+    def load_cached_docs(self):
+        print("Loading cached documents...")
+        docs = self.get_cached_docs()
+        print(f"Found {len(docs)} cached documents.")
+        if docs:
+            chunks = self.split_documents(docs)
+            self.add(chunks)
+
+    def get_cached_src(self) -> list[str]:
+        return [fp.stem for fp in self._list_cache_files()]
+
+    def _list_cache_files(self) -> list[Path]:
+        cache_path = Path(self.cache_dir)
+        if not cache_path.exists() or not cache_path.is_dir():
+            return []
+        return sorted(fp for fp in cache_path.glob("*.json") if fp.is_file())
 
     
     def clear_cache(self):

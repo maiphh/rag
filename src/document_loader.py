@@ -7,6 +7,7 @@ from docling.backend.docling_parse_v2_backend import DoclingParseV2DocumentBacke
 from langchain_core.document_loaders import BaseLoader
 import json  # added
 import hashlib  # added
+import shutil
 
 from enum_manager import *
 default_root = "data"
@@ -31,7 +32,7 @@ class DoclingLoader(BaseLoader):
             docling_doc = self._converter.convert(path).document
             text = docling_doc.export_to_markdown()
             domain = self.get_domain_from_path(path)
-            metadata = {"source": str(path), "domain": domain}
+            metadata = {"source": str(Path(path).stem), "domain": domain}
             self.cache(text, metadata)
             yield Document(page_content=text, metadata=metadata)
 
@@ -93,9 +94,19 @@ class DocumentLoader:
 
 
 
-    def load_documents(self, root = default_root, loaded_files : list[str] = None):
+    def load_documents(self, root=default_root, loaded_files: list[str] | None = None):
         files = self.get_all_files(root)
-        unloaded_files = [f for f in files if f not in loaded_files]
+
+        loaded_files = loaded_files or []
+        loaded_tokens = build_match_tokens(loaded_files)
+
+        unloaded_files = [
+            f for f in files
+            if build_match_tokens([f]).isdisjoint(loaded_tokens)
+        ]
+        # print("[document_loader] files:", files)
+        print("[document_loader] loaded_files:", sorted(loaded_tokens))
+        # print("[document_loader] unloaded_files:", unloaded_files)
         
         if not unloaded_files:
             print("No new files to load.")
@@ -112,7 +123,7 @@ class DocumentLoader:
 
         files = []
         for path in root_path.rglob("*"):  # rglob('*') = recursive glob
-            if path.is_file():
+            if path.is_file() and not path.name.startswith('.') and not path.name.startswith('~'):
                 if path.suffix.lower() in self.supported_extensions:
                     files.append(str(path.resolve()))  # absolute path
         return files

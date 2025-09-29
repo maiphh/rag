@@ -6,6 +6,7 @@ from pathlib import Path          # <-- new
 import re                         # <-- new
 import zipfile                    # <-- new
 import io                         # <-- new
+import html                       # <-- new
 
 load_dotenv()
 
@@ -67,6 +68,16 @@ def _unique_path(dir_path: Path, filename: str) -> Path:
         i += 1
     return candidate
 
+def _write_unique_bytes(save_dir: Path, filename: str, data: bytes) -> str | None:
+    target = save_dir / filename
+    if target.exists():
+        if target.read_bytes() == data:
+            return None
+        target = _unique_path(save_dir, filename)
+    with open(target, "wb") as out:
+        out.write(data)
+    return str(target)
+
 def _save_uploaded_files(domain: DOMAIN, uploaded_files):
     save_dir = Path("data") / domain.value
     save_dir.mkdir(parents=True, exist_ok=True)
@@ -93,10 +104,9 @@ def _save_uploaded_files(domain: DOMAIN, uploaded_files):
                     out.write(uf.getbuffer())
                 saved_paths.append(str(path))
         else:
-            path = _unique_path(save_dir, fname)
-            with open(path, "wb") as out:
-                out.write(uf.getbuffer())
-            saved_paths.append(str(path))
+            written = _write_unique_bytes(save_dir, fname, uf.getbuffer())
+            if written:
+                saved_paths.append(written)
     return saved_paths, extracted_paths
 
 def _index_domain(domain: DOMAIN):
@@ -106,6 +116,48 @@ def _index_domain(domain: DOMAIN):
     except TypeError:
         added = rag.load_documents()
     return added
+
+def _render_rag_content_block(content: str):
+    if not content:
+        st.info("No preview available.")
+        return
+    st.markdown(
+        f"""
+        <div style="
+            background-color:rgba(240,240,240,0.4);
+            padding:0.75rem;
+            border-radius:0.5rem;
+            white-space:pre-wrap;
+            word-break:break-word;
+            font-family:var(--font-mono);
+            font-size:0.85rem;
+        ">
+            {html.escape(content)}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+def _render_retrieved_documents(query, sources, base_key: str, expanded: bool = False):
+    if not sources:
+        return
+    with st.expander(f"📄 Retrieved Documents ({len(sources)})", expanded=expanded):
+        if query:
+            st.markdown(f"**Query:** {query}")
+        for doc_number, src in enumerate(sources, start=1 if query is None else 2):
+            source_name = src.get("source") or "Unknown source"
+            raw_conf = src.get("confidence")
+            conf_label = src.get("confidence_label") or "unknown"
+            try:
+                conf_str = f"{float(raw_conf):.2f}" if raw_conf is not None else "N/A"
+            except Exception:
+                conf_str = str(raw_conf)
+            toggle_label = f"{doc_number}. {source_name} • Confidence: {conf_str} ({conf_label})"
+            show_doc = st.toggle(toggle_label, key=f"{base_key}_doc_{doc_number}")
+            if show_doc:
+                st.caption(f"Source: {source_name}")
+                st.caption(f"Confidence: {conf_str} ({conf_label})")
+                _render_rag_content_block(src.get("content") or "")
 
 # ---------------- Sidebar ----------------
 with st.sidebar:
@@ -220,94 +272,85 @@ with chat_tab:
     st.title("📚 RAG Document Q&A")
     st.caption("Ask questions over your documents with selectable LLM + Retrieval strategy.")
 
-    # Display history
-    for idx, m in enumerate(st.session_state.messages):
-        with st.chat_message(m["role"]):
-            st.markdown(m["content"])
-            if m["role"] == "assistant" and m.get("sources"):
-                # Find preceding user query for numbering as item 1
-                user_query = None
-                for back in range(idx - 1, -1, -1):
-                    if st.session_state.messages[back]["role"] == "user":
-                        user_query = st.session_state.messages[back]["content"]
-                        break
-                with st.expander(f"📄 Retrieved Documents ({len(m['sources'])})"):
-                    # Query as item 1
-                    if user_query:
-                        st.markdown(f"**1. Query:** {user_query}")
-                        start_num = 2
-                    else:
-                        start_num = 1
-                    for i, src in enumerate(m["sources"], start=start_num):
-                        conf = src.get("confidence")
-                        conf_label = src.get("confidence_label")
-                        if conf is not None:
-                            try:
-                                conf_str = f"{float(conf):.2f}"
-                            except Exception:
-                                conf_str = str(conf)
-                            meta_line = f" | Confidence: {conf_str} ({conf_label})"
-                        else:
-                            meta_line = ""
-                        st.markdown(f"**{i}. {src['source']}**{meta_line}")
-                        if src.get("content"):
-                            st.code(src["content"], language="markdown")
+    response_container = st.container()
+    input_container = st.container()
 
-    # Input
-    if prompt := st.chat_input("Ask something..."):
+    with response_container:
+        # Display history
+        for idx, m in enumerate(st.session_state.messages):
+            with st.chat_message(m["role"]):
+                st.markdown(m["content"])
+                if m["role"] == "assistant" and m.get("sources"):
+                    # Find preceding user query for numbering as item 1
+                    user_query = None
+                    for back in range(idx - 1, -1, -1):
+                        if st.session_state.messages[back]["role"] == "user":
+                            user_query = st.session_state.messages[back]["content"]
+                            break
+                    _render_retrieved_documents(user_query, m["sources"], base_key=f"history_{idx}")
+
+    with input_container:
+        prompt = st.chat_input("Ask something...")
+
+    if prompt:
         st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+        with response_container:
+            with st.chat_message("user"):
+                st.markdown(prompt)
 
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                answer = "Error: Unknown"
-                sources_payload = []
-                try:
-                    response = rag.invoke(prompt)
-                    answer = response.get("answer", "No answer.")
-                    docs = response.get("docs", [])
-                    for d in docs:
-                        meta = getattr(d, "metadata", {}) or {}
-                        source = meta.get("source") or meta.get("file_path") or "Unknown source"
-                        confidence_score = meta.get("confidence", 0)
-                        confidence_label = meta.get("confidence_label", "unknown")
+            with st.chat_message("assistant"):
+                with st.spinner("Thinking..."):
+                    answer = "Error: Unknown"
+                    sources_payload = []
+                    try:
+                        response = rag.invoke(prompt)
+                        answer = response.get("answer", "No answer.")
+                        docs = response.get("docs", [])
+                        for d in docs:
+                            meta = getattr(d, "metadata", {}) or {}
+                            source = meta.get("source") or meta.get("file_path") or "Unknown source"
+                            confidence_score = meta.get("confidence", 0)
+                            confidence_label = meta.get("confidence_label", "unknown")
 
-                        content = getattr(d, "page_content", "")[:650]
-                        sources_payload.append({
-                            "source": source,
-                            "content": content,
-                            "confidence": confidence_score,
-                            "confidence_label": confidence_label
-                        })
-                except Exception as e:
-                    answer = f"Error: {e}"
+                            content = getattr(d, "page_content", "")
+                            sources_payload.append({
+                                "source": source,
+                                "content": content,
+                                "confidence": confidence_score,
+                                "confidence_label": confidence_label
+                            })
+                    except Exception as e:
+                        answer = f"Error: {e}"
 
-                st.markdown(answer)
-                if sources_payload:
-                    with st.expander(f"📄 Retrieved Documents ({len(sources_payload)})", expanded=False):
-                        # Query as item 1
-                        st.markdown(f"**1. Query:** {prompt}")
-                        for i, src in enumerate(sources_payload, start=2):
-                            conf = src.get("confidence")
-                            conf_label = src.get("confidence_label")
-                            if conf is not None:
-                                try:
-                                    conf_str = f"{float(conf):.2f}"
-                                except Exception:
-                                    conf_str = str(conf)
-                                meta_line = f" | Confidence: {conf_str} ({conf_label})"
-                            else:
-                                meta_line = ""
-                            st.markdown(f"**{i}. {src['source']}**{meta_line}")
-                            if src.get("content"):
-                                st.code(src["content"], language="markdown")
+                    st.markdown(answer)
+                    _render_retrieved_documents(prompt, sources_payload, base_key=f"live_{len(st.session_state.messages)}")
 
         st.session_state.messages.append({
             "role": "assistant",
             "content": answer,
             "sources": sources_payload
         })
+
+    # --- Auto scroll to bottom when new messages appear (NEW) ---
+    current_len = len(st.session_state.messages)
+    prev_len = st.session_state.get("last_rendered_message_count", 0)
+    with response_container:
+        # Anchor at the end of the chat
+        st.markdown("<div id='chat-end'></div>", unsafe_allow_html=True)
+        if current_len != prev_len:
+            st.session_state.last_rendered_message_count = current_len
+            st.markdown(
+                """
+                <script>
+                const el = document.getElementById('chat-end');
+                if (el) {
+                    el.scrollIntoView({behavior: 'auto', block: 'start'});
+                }
+                </script>
+                """,
+                unsafe_allow_html=True
+            )
+    # --- End auto scroll block (NEW) ---
 
     st.markdown("---")
     st.markdown(
